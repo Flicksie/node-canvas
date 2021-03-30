@@ -114,6 +114,7 @@ Context2d::Initialize(Nan::ADDON_REGISTER_FUNCTION_ARGS_TYPE target) {
   // Prototype
   Local<ObjectTemplate> proto = ctor->PrototypeTemplate();
   Nan::SetPrototypeMethod(ctor, "drawImage", DrawImage);
+  Nan::SetPrototypeMethod(ctor, "blur", blur);
   Nan::SetPrototypeMethod(ctor, "putImageData", PutImageData);
   Nan::SetPrototypeMethod(ctor, "getImageData", GetImageData);
   Nan::SetPrototypeMethod(ctor, "createImageData", CreateImageData);
