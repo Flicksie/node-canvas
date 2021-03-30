@@ -17,6 +17,9 @@ const os = require('os')
 const Readable = require('stream').Readable
 
 describe('Canvas', function () {
+  // Run with --expose-gc and uncomment this line to help find memory problems:
+  // afterEach(gc);
+
   it('Prototype and ctor are well-shaped, don\'t hit asserts on accessors (GH-803)', function () {
     const Canvas = require('../').Canvas;
     var c = new Canvas(10, 10);
@@ -948,6 +951,23 @@ describe('Canvas', function () {
     });
   });
 
+  it('Context2d#fillText()', function () {
+    [
+      [['A', 10, 10], true],
+      [['A', 10, 10, undefined], true],
+      [['A', 10, 10, NaN], false],
+    ].forEach(([args, shouldDraw]) => {
+      const canvas = createCanvas(20, 20)
+      const ctx = canvas.getContext('2d')
+
+      ctx.textBaseline = 'middle'
+      ctx.textAlign = 'center'
+      ctx.fillText(...args)
+
+      assert.strictEqual(ctx.getImageData(0, 0, 20, 20).data.some(a => a), shouldDraw)
+    })
+  })
+
   it('Context2d#currentTransform', function () {
     var canvas = createCanvas(20, 20);
     var ctx = canvas.getContext('2d');
@@ -1051,7 +1071,7 @@ describe('Canvas', function () {
       var imageData = ctx.getImageData(0,0,3,6);
       assert.equal(3, imageData.width);
       assert.equal(6, imageData.height);
-      assert.equal(3 * 6 * 2, imageData.data.length);
+      assert.equal(3 * 6, imageData.data.length);
 
       assert.equal((255 & 0b11111) << 11, imageData.data[0]);
       assert.equal((255 & 0b111111) << 5, imageData.data[1]);
@@ -1123,7 +1143,7 @@ describe('Canvas', function () {
       var imageData = ctx.getImageData(0,0,2,1);
       assert.equal(2, imageData.width);
       assert.equal(1, imageData.height);
-      assert.equal(2 * 1 * 2, imageData.data.length);
+      assert.equal(2 * 1, imageData.data.length);
 
       assert.equal((255 & 0b11111) << 11, imageData.data[0]);
       assert.equal((255 & 0b111111) << 5, imageData.data[1]);
@@ -1736,7 +1756,7 @@ describe('Canvas', function () {
     var canvas = createCanvas(2, 2);
     var ctx = canvas.getContext('2d');
 
-    ctx.fillStyle = ['#808080'];
+    ctx.fillStyle = '#808080';
     ctx.fillRect(0, 0, 2, 2);
     var data = ctx.getImageData(0, 0, 2, 2).data;
 
@@ -1745,10 +1765,6 @@ describe('Canvas', function () {
         assert.strictEqual(byte, 128);
       else
         assert.strictEqual(byte, 255);
-    });
-
-    assert.throws(function () {
-      ctx.fillStyle = Object.create(null);
     });
   });
 

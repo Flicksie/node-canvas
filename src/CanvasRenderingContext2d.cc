@@ -4,7 +4,7 @@
 
 #include <algorithm>
 #include "backend/ImageBackend.h"
-#include <cairo/cairo-pdf.h>
+#include <cairo-pdf.h>
 #include "Canvas.h"
 #include "CanvasGradient.h"
 #include "CanvasPattern.h"
@@ -213,10 +213,6 @@ Context2d::~Context2d() {
 
 void Context2d::resetState(bool init) {
   if (!init) {
-    cairo_pattern_destroy(state->fillPattern);
-    cairo_pattern_destroy(state->strokePattern);
-    cairo_pattern_destroy(state->fillGradient);
-    cairo_pattern_destroy(state->strokeGradient);
     pango_font_description_free(state->fontDescription);
   }
 
@@ -237,7 +233,7 @@ void Context2d::resetState(bool init) {
   state->patternQuality = CAIRO_FILTER_GOOD;
   state->imageSmoothingEnabled = true;
   state->textDrawingMode = TEXT_DRAW_PATHS;
-  state->fontDescription = pango_font_description_from_string("sans serif");
+  state->fontDescription = pango_font_description_from_string("sans");
   pango_font_description_set_absolute_size(state->fontDescription, 10 * PANGO_SCALE);
   pango_layout_set_font_description(_layout, state->fontDescription);
 
@@ -524,6 +520,16 @@ Context2d::shadow(void (fn)(cairo_t *cr)) {
     // transform path to the right place
     cairo_translate(shadow_context, pad-x1, pad-y1);
     cairo_transform(shadow_context, &path_matrix);
+
+    // set lineCap lineJoin lineDash
+    cairo_set_line_cap(shadow_context, cairo_get_line_cap(_context));
+    cairo_set_line_join(shadow_context, cairo_get_line_join(_context));
+
+    double offset;
+    int dashes = cairo_get_dash_count(_context);
+    std::vector<double> a(dashes);
+    cairo_get_dash(_context, a.data(), &offset);
+    cairo_set_dash(shadow_context, a.data(), dashes, offset);
 
     // draw the path and blur
     cairo_set_line_width(shadow_context, cairo_get_line_width(_context));
@@ -1024,7 +1030,7 @@ NAN_METHOD(Context2d::GetImageData) {
   Local<TypedArray> dataArray;
 
   if (canvas->backend()->getFormat() == CAIRO_FORMAT_RGB16_565) {
-    dataArray = Uint16Array::New(buffer, 0, size);
+    dataArray = Uint16Array::New(buffer, 0, size >> 1);
   } else {
     dataArray = Uint8ClampedArray::New(buffer, 0, size);
   }
@@ -1823,26 +1829,23 @@ NAN_GETTER(Context2d::GetFillStyle) {
 NAN_SETTER(Context2d::SetFillStyle) {
   Context2d *context = Nan::ObjectWrap::Unwrap<Context2d>(info.This());
 
-  if (Nan::New(Gradient::constructor)->HasInstance(value) ||
-      Nan::New(Pattern::constructor)->HasInstance(value)) {
-    context->_fillStyle.Reset(value);
-
-    Local<Object> obj = Nan::To<Object>(value).ToLocalChecked();
-    if (Nan::New(Gradient::constructor)->HasInstance(obj)){
-      Gradient *grad = Nan::ObjectWrap::Unwrap<Gradient>(obj);
-      context->state->fillGradient = grad->pattern();
-    } else if(Nan::New(Pattern::constructor)->HasInstance(obj)){
-      Pattern *pattern = Nan::ObjectWrap::Unwrap<Pattern>(obj);
-      context->state->fillPattern = pattern->pattern();
-    } else {
-      return Nan::ThrowTypeError("Gradient or Pattern expected");
-    }
-  } else {
+  if (value->IsString()) {
     MaybeLocal<String> mstr = Nan::To<String>(value);
     if (mstr.IsEmpty()) return;
     Local<String> str = mstr.ToLocalChecked();
     context->_fillStyle.Reset();
     context->_setFillColor(str);
+  } else if (value->IsObject()) {
+    Local<Object> obj = Nan::To<Object>(value).ToLocalChecked();
+    if (Nan::New(Gradient::constructor)->HasInstance(obj)) {
+      context->_fillStyle.Reset(value);
+      Gradient *grad = Nan::ObjectWrap::Unwrap<Gradient>(obj);
+      context->state->fillGradient = grad->pattern();
+    } else if (Nan::New(Pattern::constructor)->HasInstance(obj)) {
+      context->_fillStyle.Reset(value);
+      Pattern *pattern = Nan::ObjectWrap::Unwrap<Pattern>(obj);
+      context->state->fillPattern = pattern->pattern();
+    }
   }
 }
 
@@ -1869,26 +1872,23 @@ NAN_GETTER(Context2d::GetStrokeStyle) {
 NAN_SETTER(Context2d::SetStrokeStyle) {
   Context2d *context = Nan::ObjectWrap::Unwrap<Context2d>(info.This());
 
-  if (Nan::New(Gradient::constructor)->HasInstance(value) ||
-      Nan::New(Pattern::constructor)->HasInstance(value)) {
-    context->_strokeStyle.Reset(value);
-
-    Local<Object> obj = Nan::To<Object>(value).ToLocalChecked();
-    if (Nan::New(Gradient::constructor)->HasInstance(obj)){
-      Gradient *grad = Nan::ObjectWrap::Unwrap<Gradient>(obj);
-      context->state->strokeGradient = grad->pattern();
-    } else if(Nan::New(Pattern::constructor)->HasInstance(obj)){
-      Pattern *pattern = Nan::ObjectWrap::Unwrap<Pattern>(obj);
-      context->state->strokePattern = pattern->pattern();
-    } else {
-      return Nan::ThrowTypeError("Gradient or Pattern expected");
-    }
-  } else {
+  if (value->IsString()) {
     MaybeLocal<String> mstr = Nan::To<String>(value);
     if (mstr.IsEmpty()) return;
     Local<String> str = mstr.ToLocalChecked();
     context->_strokeStyle.Reset();
     context->_setStrokeColor(str);
+  } else if (value->IsObject()) {
+    Local<Object> obj = Nan::To<Object>(value).ToLocalChecked();
+    if (Nan::New(Gradient::constructor)->HasInstance(obj)) {
+      context->_strokeStyle.Reset(value);
+      Gradient *grad = Nan::ObjectWrap::Unwrap<Gradient>(obj);
+      context->state->strokeGradient = grad->pattern();
+    } else if (Nan::New(Pattern::constructor)->HasInstance(obj)) {
+      context->_strokeStyle.Reset(value);
+      Pattern *pattern = Nan::ObjectWrap::Unwrap<Pattern>(obj);
+      context->state->strokePattern = pattern->pattern();
+    }
   }
 }
 
@@ -2339,6 +2339,10 @@ get_text_scale(PangoLayout *layout, double maxWidth) {
 void
 paintText(const Nan::FunctionCallbackInfo<Value> &info, bool stroke) {
   int argsNum = info.Length() >= 4 ? 3 : 2;
+
+  if (argsNum == 3 && info[3]->IsUndefined())
+    argsNum = 2;
+
   double args[3];
   if(!checkArgs(info, args, argsNum, 1))
     return;
@@ -2530,7 +2534,16 @@ NAN_SETTER(Context2d::SetFont) {
   pango_font_description_set_style(desc, Canvas::GetStyleFromCSSString(*style));
   pango_font_description_set_weight(desc, Canvas::GetWeightFromCSSString(*weight));
 
-  if (strlen(*family) > 0) pango_font_description_set_family(desc, *family);
+  if (strlen(*family) > 0) {
+    // See #1643 - Pango understands "sans" whereas CSS uses "sans-serif"
+    std::string s1(*family);
+    std::string s2("sans-serif");
+    if (streq_casein(s1, s2)) {
+      pango_font_description_set_family(desc, "sans");
+    } else {
+      pango_font_description_set_family(desc, *family);
+    }
+  }
 
   PangoFontDescription *sys_desc = Canvas::ResolveFontDescription(desc);
   pango_font_description_free(desc);
